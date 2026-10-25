@@ -1,6 +1,6 @@
 {
-  "name": "KitabKhana - Digital Library & Author Publishing Platform",
-  "description": "Premium digital library, immersive book reader, offline-first author writing studio, and publishing platform.",
+  "name": "মুক্তলিপি (Muktolipi)",
+  "description": "প্রফেশনাল মোবাইল-ফার্স্ট ডকুমেন্ট ও বই লেখার অ্যাপ্লিকেশন (Word-style WYSIWYG Editor)",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

@@ -3,191 +3,200 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
-import { AuthProvider, useAuth } from './context/AuthContext';
-import { ThemeProvider } from './context/ThemeContext';
-import { ToastProvider } from './context/ToastContext';
-import { ToastContainer } from './components/common/ToastContainer';
-import { SplashScreen } from './components/common/SplashScreen';
-import { AppLayout } from './components/layout/AppLayout';
-
-import { Home } from './pages/Home';
-import { Search } from './pages/Search';
-import { Library } from './pages/Library';
-import { WritingCenter } from './pages/WritingCenter';
-import { Writer } from './pages/Writer';
-import { WriterEditor } from './pages/WriterEditor';
-import { Profile } from './pages/Profile';
-import { Settings } from './pages/Settings';
-import { BookDetails } from './pages/BookDetails';
-import { BookReader } from './pages/BookReader';
-import { AuthorProfile } from './pages/AuthorProfile';
-import { LoginForm } from './components/auth/LoginForm';
-import { RegisterForm } from './components/auth/RegisterForm';
-import { ForgotPasswordForm } from './components/auth/ForgotPasswordForm';
-import { AdminLayout } from './pages/admin/AdminLayout';
-
-function MainRouter() {
-  const { loading } = useAuth();
-
-  // Parse view, parameter, and sub-parameter from window.location.hash
-  const parseHash = (): { view: string; param?: string; subParam?: string } => {
-    const raw = window.location.hash.replace(/^#\/?/, '');
-    if (!raw) return { view: 'home' };
-
-    const [pathPart] = raw.split('?');
-    const parts = pathPart.split('/');
-    let view = parts[0].toLowerCase();
-    const param = parts[1];
-    const subParam = parts[3]; // Supports #writer/{bookId}/chapter/{chapterId}
-
-    if (view === 'write') {
-      view = 'writer';
-    }
-
-    const validViews = [
-      'home',
-      'search',
-      'library',
-      'writer',
-      'profile',
-      'settings',
-      'login',
-      'register',
-      'forgot-password',
-      'admin',
-      'book',
-      'reader',
-      'author',
-    ];
-
-    if (!validViews.includes(view)) {
-      return { view: 'home' };
-    }
-
-    return { view, param, subParam };
-  };
-
-  const [route, setRoute] = useState<{ view: string; param?: string; subParam?: string }>(parseHash);
-
-  useEffect(() => {
-    const handleHashChange = () => {
-      setRoute(parseHash());
-    };
-
-    window.addEventListener('hashchange', handleHashChange);
-    return () => window.removeEventListener('hashchange', handleHashChange);
-  }, []);
-
-  const navigateTo = (view: string, param?: string, subParam?: string) => {
-    let hash = `#${view}`;
-    if (param && subParam) {
-      hash = `#${view}/${param}/chapter/${subParam}`;
-    } else if (param) {
-      hash = `#${view}/${param}`;
-    }
-    window.location.hash = hash;
-    setRoute({ view, param, subParam });
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
-
-  // While Firebase authentication is initializing, show branded Splash
-  if (loading) {
-    return <SplashScreen />;
-  }
-
-  // Auth pages view wrapper
-  const renderAuthPage = () => {
-    return (
-      <div className="min-h-[75vh] flex items-center justify-center py-8">
-        {route.view === 'login' && <LoginForm onNavigate={navigateTo} />}
-        {route.view === 'register' && <RegisterForm onNavigate={navigateTo} />}
-        {route.view === 'forgot-password' && <ForgotPasswordForm onNavigate={navigateTo} />}
-      </div>
-    );
-  };
-
-  // Main view content resolver
-  const renderContent = () => {
-    switch (route.view) {
-      case 'home':
-        return <Home onNavigate={navigateTo} />;
-      case 'search':
-        return <Search initialCategoryId={route.param} onNavigate={navigateTo} />;
-      case 'library':
-        return <Library onNavigate={navigateTo} />;
-      case 'writer':
-        return (
-          <Writer
-            onNavigate={navigateTo}
-            openNewBookInitially={route.param === 'new'}
-          />
-        );
-      case 'profile':
-        return <Profile onNavigate={navigateTo} />;
-      case 'settings':
-        return <Settings />;
-      case 'book':
-        return route.param ? (
-          <BookDetails bookId={route.param} onNavigate={navigateTo} />
-        ) : (
-          <Home onNavigate={navigateTo} />
-        );
-      case 'reader':
-        return route.param ? (
-          <BookReader bookId={route.param} onNavigate={navigateTo} />
-        ) : (
-          <Home onNavigate={navigateTo} />
-        );
-      case 'author':
-        return route.param ? (
-          <AuthorProfile authorIdOrName={route.param} onNavigate={navigateTo} />
-        ) : (
-          <Search onNavigate={navigateTo} />
-        );
-      case 'admin':
-        return <AdminLayout onNavigate={navigateTo} />;
-      case 'login':
-      case 'register':
-      case 'forgot-password':
-        return renderAuthPage();
-      default:
-        return <Home onNavigate={navigateTo} />;
-    }
-  };
-
-  // If in Reader view, use dedicated reader layout without global navigation
-  if (route.view === 'reader' && route.param) {
-    return <BookReader bookId={route.param} onNavigate={navigateTo} />;
-  }
-
-  // If in Writer Studio Editor view, use dedicated writer layout without global navigation
-  if (route.view === 'writer' && route.param && route.param !== 'new') {
-    return (
-      <WriterEditor
-        bookId={route.param}
-        initialChapterId={route.subParam}
-        onNavigate={navigateTo}
-      />
-    );
-  }
-
-  return (
-    <AppLayout currentView={route.view} onNavigate={navigateTo}>
-      {renderContent()}
-    </AppLayout>
-  );
-}
+import React, { useEffect, useState } from 'react';
+import { useLiveQuery } from 'dexie-react-hooks';
+import { db, initDatabaseWithSample, getSettings, updateSettings } from './db';
+import { Project, AppSettings } from './types';
+import { LibraryScreen } from './features/library/LibraryScreen';
+import { EditorCanvas } from './features/editor/EditorCanvas';
+import { SettingsScreen } from './features/settings/SettingsScreen';
+import { PWAInstallButton } from './components/pwa/PWAInstallButton';
 
 export default function App() {
+  const [currentScreen, setCurrentScreen] = useState<'library' | 'editor' | 'settings'>('library');
+  const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
+  const [settings, setSettings] = useState<AppSettings | null>(null);
+  const [isDbReady, setIsDbReady] = useState(false);
+
+  // Initialize DB and sample on mount
+  useEffect(() => {
+    async function setup() {
+      await initDatabaseWithSample();
+      const currentSettings = await getSettings();
+      setSettings(currentSettings);
+      setIsDbReady(true);
+
+      // Register PWA service worker
+      if ('serviceWorker' in navigator && process.env.NODE_ENV !== 'development') {
+        navigator.serviceWorker.register('/sw.js').catch(() => {});
+      }
+    }
+    setup();
+  }, []);
+
+  // Dexie live queries
+  const projects = useLiveQuery(() => db.projects.orderBy('updatedAt').reverse().toArray(), [], []);
+
+  // Theme application
+  useEffect(() => {
+    if (!settings) return;
+    const root = document.documentElement;
+    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    const isDark =
+      settings.theme === 'dark' ||
+      settings.theme === 'amoled' ||
+      (settings.theme === 'system' && prefersDark);
+
+    if (isDark) {
+      root.classList.add('dark');
+    } else {
+      root.classList.remove('dark');
+    }
+
+    if (settings.theme === 'amoled') {
+      root.classList.add('amoled-mode');
+    } else {
+      root.classList.remove('amoled-mode');
+    }
+  }, [settings]);
+
+  // Android Back button / History API integration
+  useEffect(() => {
+    const handlePopState = (e: PopStateEvent) => {
+      if (currentScreen === 'editor' || currentScreen === 'settings') {
+        setCurrentScreen('library');
+        setActiveProjectId(null);
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [currentScreen]);
+
+  // Navigate to editor
+  const handleOpenProject = (id: string) => {
+    setActiveProjectId(id);
+    setCurrentScreen('editor');
+    window.history.pushState({ screen: 'editor', id }, '');
+  };
+
+  // Navigate to settings
+  const handleOpenSettings = () => {
+    setCurrentScreen('settings');
+    window.history.pushState({ screen: 'settings' }, '');
+  };
+
+  // Back to library
+  const handleBackToLibrary = () => {
+    setCurrentScreen('library');
+    setActiveProjectId(null);
+    window.history.pushState({ screen: 'library' }, '');
+  };
+
+  // Database mutations
+  const handleCreateProject = async (newProject: Project) => {
+    await db.projects.put(newProject);
+    handleOpenProject(newProject.id);
+  };
+
+  const handleUpdateProject = async (updates: Partial<Project>) => {
+    if (!activeProjectId) return;
+    await db.projects.update(activeProjectId, {
+      ...updates,
+      updatedAt: Date.now(),
+    });
+  };
+
+  const handleDuplicateProject = async (orig: Project) => {
+    const dup: Project = {
+      ...orig,
+      id: `proj-${Date.now()}`,
+      title: `${orig.title} (অনুলিপি)`,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    await db.projects.put(dup);
+  };
+
+  const handleRenameProject = async (id: string, newTitle: string) => {
+    await db.projects.update(id, {
+      title: newTitle,
+      updatedAt: Date.now(),
+    });
+  };
+
+  const handleDeleteProject = async (id: string) => {
+    await db.projects.delete(id);
+  };
+
+  const handleRestoreProject = async (proj: Project) => {
+    await db.projects.put(proj);
+  };
+
+  const handleUpdateSettings = async (updates: Partial<AppSettings>) => {
+    const updated = await updateSettings(updates);
+    setSettings(updated);
+  };
+
+  const handleClearAllData = async () => {
+    await db.projects.clear();
+    await db.versions.clear();
+    await initDatabaseWithSample();
+    handleBackToLibrary();
+  };
+
+  if (!isDbReady || !settings) {
+    return (
+      <div className="h-screen w-screen flex items-center justify-center bg-slate-100 dark:bg-slate-950 text-slate-800 dark:text-slate-200">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-8 h-8 border-3 border-teal-500 border-t-transparent rounded-full animate-spin" />
+          <span className="text-xs font-semibold text-slate-600 dark:text-slate-400">
+            মুক্তলিপি লোড হচ্ছে…
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  const activeProject = projects?.find((p) => p.id === activeProjectId);
+
   return (
-    <ThemeProvider>
-      <ToastProvider>
-        <AuthProvider>
-          <ToastContainer />
-          <MainRouter />
-        </AuthProvider>
-      </ToastProvider>
-    </ThemeProvider>
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 font-sans antialiased text-slate-900 dark:text-slate-100">
+      {currentScreen === 'library' && (
+        <LibraryScreen
+          projects={projects || []}
+          settings={settings}
+          language={settings.language || 'bn'}
+          onOpenProject={handleOpenProject}
+          onCreateProject={handleCreateProject}
+          onDuplicateProject={handleDuplicateProject}
+          onRenameProject={handleRenameProject}
+          onDeleteProject={handleDeleteProject}
+          onRestoreProject={handleRestoreProject}
+          onOpenSettings={handleOpenSettings}
+          installPromptComponent={<PWAInstallButton />}
+        />
+      )}
+
+      {currentScreen === 'editor' && activeProject && (
+        <EditorCanvas
+          project={activeProject}
+          settings={settings}
+          language={settings.language || 'bn'}
+          onUpdateProject={handleUpdateProject}
+          onBackToLibrary={handleBackToLibrary}
+        />
+      )}
+
+      {currentScreen === 'settings' && (
+        <SettingsScreen
+          settings={settings}
+          language={settings.language || 'bn'}
+          onUpdateSettings={handleUpdateSettings}
+          onClearAllData={handleClearAllData}
+          onBack={handleBackToLibrary}
+        />
+      )}
+    </div>
   );
 }
