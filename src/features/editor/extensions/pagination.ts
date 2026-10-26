@@ -281,11 +281,21 @@ function createHeaderWidget(
     border-bottom: 1px solid rgba(148, 163, 184, 0.35);
     font-size: 11px;
     color: #64748b;
-    cursor: pointer;
+    cursor: default;
   `;
 
+  el.title = 'হেডার সেটিংস দেখতে ডাবল ক্লিক করুন (Double click to edit)';
+  el.addEventListener('click', (e) => {
+    // Stop single click propagation so it does not trigger unwanted menu or modal
+    e.stopPropagation();
+  });
+
   if (onEdit) {
-    el.addEventListener('click', onEdit);
+    el.addEventListener('dblclick', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      onEdit();
+    });
   }
 
   const hideFirstPage = project.differentFirstPage && pageIndex === 1;
@@ -330,11 +340,20 @@ function createFooterWidget(
     border-top: 1px solid rgba(148, 163, 184, 0.35);
     font-size: 11px;
     color: #64748b;
-    cursor: pointer;
+    cursor: default;
   `;
 
+  el.title = 'ফুটার সেটিংস দেখতে ডাবল ক্লিক করুন (Double click to edit)';
+  el.addEventListener('click', (e) => {
+    e.stopPropagation();
+  });
+
   if (onEdit) {
-    el.addEventListener('click', onEdit);
+    el.addEventListener('dblclick', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      onEdit();
+    });
   }
 
   const pageNumStr = formatPageNumber(pageIndex, project.numberingStyle || 'bengali');

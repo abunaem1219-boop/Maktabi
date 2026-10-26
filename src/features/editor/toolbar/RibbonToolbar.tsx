@@ -11,7 +11,8 @@ import {
   Undo2, Redo2, Search, Paintbrush, Palette, Highlighter, RemoveFormatting,
   Type, Image as ImageIcon, Table as TableIcon, Link as LinkIcon,
   BookOpen, Sparkles, FileText, LayoutGrid, Eye, CheckCircle2,
-  Rows, Columns, Trash2, Calendar, SplitSquareVertical, Minus, Compass, ArrowLeftRight
+  Rows, Columns, Trash2, Calendar, SplitSquareVertical, Minus, Compass, ArrowLeftRight,
+  Hand
 } from 'lucide-react';
 
 interface RibbonToolbarProps {
@@ -38,6 +39,8 @@ interface RibbonToolbarProps {
   onToggleRuler: () => void;
   spellcheck: boolean;
   onToggleSpellcheck: () => void;
+  isPanMode?: boolean;
+  onTogglePanMode?: () => void;
 }
 
 export const RibbonToolbar: React.FC<RibbonToolbarProps> = ({
@@ -64,6 +67,8 @@ export const RibbonToolbar: React.FC<RibbonToolbarProps> = ({
   onToggleRuler,
   spellcheck,
   onToggleSpellcheck,
+  isPanMode = false,
+  onTogglePanMode,
 }) => {
   const t = translations[language];
   const [activeTab, setActiveTab] = useState<'home' | 'insert' | 'layout' | 'review' | 'view'>('home');
@@ -250,6 +255,26 @@ export const RibbonToolbar: React.FC<RibbonToolbarProps> = ({
               >
                 <Paintbrush className="w-4 h-4" />
               </button>
+              {onTogglePanMode && (
+                <button
+                  type="button"
+                  onClick={onTogglePanMode}
+                  title={isPanMode ? 'প্যান মোড সক্রিয় — সাধারণ লেখায় ফিরতে ক্লিক করুন' : 'প্যান মোড চালু করুন (Pan Mode)'}
+                  aria-label="Pan Mode"
+                  aria-pressed={isPanMode}
+                  className={`min-h-[40px] px-2 flex items-center gap-1.5 rounded-lg transition-all border ${
+                    isPanMode
+                      ? 'bg-teal-600 border-teal-600 text-white font-bold shadow-xs'
+                      : 'text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 border-slate-200 dark:border-slate-700'
+                  }`}
+                >
+                  <Hand className={`w-4 h-4 ${isPanMode ? 'text-white' : 'text-teal-600 dark:text-teal-400'}`} />
+                  <span className="text-xs whitespace-nowrap">{t.panMode}</span>
+                  {isPanMode && (
+                    <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+                  )}
+                </button>
+              )}
             </div>
 
             {/* Font Family Dropdown */}
@@ -416,38 +441,50 @@ export const RibbonToolbar: React.FC<RibbonToolbarProps> = ({
 
               {/* Color popovers */}
               {showColorPicker && (
-                <div className="absolute top-12 left-0 z-50">
-                  <ColorPickerPopover
-                    currentColor={editor.getAttributes('textStyle').color}
-                    onSelectColor={(color) => {
-                      editor.chain().focus().setColor(color).run();
-                      setShowColorPicker(false);
-                    }}
-                    onClear={() => {
-                      editor.chain().focus().unsetColor().run();
-                      setShowColorPicker(false);
-                    }}
-                    title={t.textColor}
+                <>
+                  <div
+                    className="fixed inset-0 z-40 bg-transparent"
+                    onClick={() => setShowColorPicker(false)}
                   />
-                </div>
+                  <div className="absolute top-12 left-0 z-50">
+                    <ColorPickerPopover
+                      currentColor={editor.getAttributes('textStyle').color}
+                      onSelectColor={(color) => {
+                        editor.chain().focus().setColor(color).run();
+                        setShowColorPicker(false);
+                      }}
+                      onClear={() => {
+                        editor.chain().focus().unsetColor().run();
+                        setShowColorPicker(false);
+                      }}
+                      title={t.textColor}
+                    />
+                  </div>
+                </>
               )}
 
               {showHighlightPicker && (
-                <div className="absolute top-12 left-8 z-50">
-                  <ColorPickerPopover
-                    isHighlight
-                    currentColor={editor.getAttributes('highlight').color}
-                    onSelectColor={(color) => {
-                      editor.chain().focus().setHighlight({ color }).run();
-                      setShowHighlightPicker(false);
-                    }}
-                    onClear={() => {
-                      editor.chain().focus().unsetHighlight().run();
-                      setShowHighlightPicker(false);
-                    }}
-                    title={t.highlightColor}
+                <>
+                  <div
+                    className="fixed inset-0 z-40 bg-transparent"
+                    onClick={() => setShowHighlightPicker(false)}
                   />
-                </div>
+                  <div className="absolute top-12 left-8 z-50">
+                    <ColorPickerPopover
+                      isHighlight
+                      currentColor={editor.getAttributes('highlight').color}
+                      onSelectColor={(color) => {
+                        editor.chain().focus().setHighlight({ color }).run();
+                        setShowHighlightPicker(false);
+                      }}
+                      onClear={() => {
+                        editor.chain().focus().unsetHighlight().run();
+                        setShowHighlightPicker(false);
+                      }}
+                      title={t.highlightColor}
+                    />
+                  </div>
+                </>
               )}
             </div>
 
@@ -987,6 +1024,30 @@ export const RibbonToolbar: React.FC<RibbonToolbarProps> = ({
               <Compass className="w-4 h-4" />
               <span className="text-xs font-medium whitespace-nowrap">{t.showRuler}</span>
             </button>
+
+            {/* Pan Mode */}
+            {onTogglePanMode && (
+              <button
+                type="button"
+                onClick={onTogglePanMode}
+                className={`min-h-[44px] px-3.5 flex items-center gap-2 rounded-lg border transition-all ${
+                  isPanMode
+                    ? 'bg-teal-600 border-teal-600 text-white font-bold shadow-xs'
+                    : 'text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800'
+                }`}
+                title={isPanMode ? 'প্যান মোড বন্ধ করুন' : 'প্যান মোড চালু করুন'}
+                aria-pressed={isPanMode}
+                aria-label="Pan Mode"
+              >
+                <Hand className={`w-4 h-4 ${isPanMode ? 'text-white' : 'text-teal-600 dark:text-teal-400'}`} />
+                <span className="text-xs font-medium whitespace-nowrap">
+                  {t.panMode}: {isPanMode ? 'চালু' : 'বন্ধ'}
+                </span>
+                {isPanMode && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+                )}
+              </button>
+            )}
 
             {/* Focus Mode */}
             <button

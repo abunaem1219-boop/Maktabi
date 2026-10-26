@@ -63,6 +63,10 @@ export const translations = {
     zoom: 'জুম',
     fitWidth: 'প্রস্থ অনুযায়ী ফিট',
     fitPage: 'পুরো পেজ ফিট',
+    panMode: 'প্যান মোড',
+    panModeTitle: 'প্যান মোড (হাতে স্ক্রোল / ড্র্যাগ)',
+    panModeActive: 'প্যান মোড চালু — পাতা সরাতে টানুন',
+    exitPanMode: 'স্বাভাবিক মোডে ফিরুন',
     
     // Home Tab Actions
     clipboard: 'ক্লিপবোর্ড',
@@ -285,6 +289,10 @@ export const translations = {
     zoom: 'Zoom',
     fitWidth: 'Fit Width',
     fitPage: 'Fit Page',
+    panMode: 'Pan Mode',
+    panModeTitle: 'Pan Mode (Drag to scroll/pan)',
+    panModeActive: 'Pan Mode Active — Drag to navigate page',
+    exitPanMode: 'Exit Pan Mode',
     
     // Home Tab Actions
     clipboard: 'Clipboard',

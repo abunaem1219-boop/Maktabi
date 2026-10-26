@@ -25,7 +25,7 @@ import { ExportModal } from '../export/ExportModal';
 
 import {
   ArrowLeft, ZoomIn, ZoomOut,
-  FileDown, Minimize2, Smartphone, FileText
+  FileDown, Minimize2, Smartphone, FileText, Hand
 } from 'lucide-react';
 
 interface EditorCanvasProps {
@@ -47,6 +47,8 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
 
   // View state
   const [zoom, setZoom] = useState<number>(1);
+  const [isPanMode, setIsPanMode] = useState<boolean>(false);
+  const [isActivelyDragging, setIsActivelyDragging] = useState<boolean>(false);
   const [viewLayout, setViewLayout] = useState<'print' | 'reflow'>('print');
   const [pageMode, setPageMode] = useState<'white' | 'night'>(settings.pageTheme || 'white');
   const [rulerVisible, setRulerVisible] = useState<boolean>(settings.rulerVisible ?? true);
@@ -201,51 +203,238 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
     }
   }, [pageWidthPx]);
 
-  // Touch pinch-to-zoom and double-tap gestures
-  const touchStartDistRef = useRef<number | null>(null);
-  const touchStartZoomRef = useRef<number>(1);
-  const lastTapRef = useRef<number>(0);
+  // Sync refs for event listeners to avoid stale closures
+  const isPanModeRef = useRef(isPanMode);
+  useEffect(() => {
+    isPanModeRef.current = isPanMode;
+  }, [isPanMode]);
 
-  const handleTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
-    if (e.touches.length === 2) {
-      const dist = Math.hypot(
-        e.touches[0].clientX - e.touches[1].clientX,
-        e.touches[0].clientY - e.touches[1].clientY
-      );
-      touchStartDistRef.current = dist;
-      touchStartZoomRef.current = zoom;
-    }
-  };
+  const zoomRef = useRef(zoom);
+  useEffect(() => {
+    zoomRef.current = zoom;
+  }, [zoom]);
 
-  const handleTouchMove = (e: React.TouchEvent<HTMLDivElement>) => {
-    if (e.touches.length === 2 && touchStartDistRef.current !== null) {
-      const dist = Math.hypot(
-        e.touches[0].clientX - e.touches[1].clientX,
-        e.touches[0].clientY - e.touches[1].clientY
-      );
-      const factor = dist / touchStartDistRef.current;
-      const nextZoom = Math.min(2.5, Math.max(0.35, Math.round(touchStartZoomRef.current * factor * 100) / 100));
-      setZoom(nextZoom);
-    }
-  };
+  // Pointer drag panning refs
+  const isPointerDownRef = useRef<boolean>(false);
+  const activePointerIdRef = useRef<number | null>(null);
+  const pointerStartRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const scrollStartRef = useRef<{ left: number; top: number }>({ left: 0, top: 0 });
+  const hasMovedRef = useRef<boolean>(false);
+  const suppressClickUntilRef = useRef<number>(0);
+  const panRafRef = useRef<number | null>(null);
 
-  const handleTouchEnd = (e: React.TouchEvent<HTMLDivElement>) => {
-    if (e.touches.length < 2) {
-      touchStartDistRef.current = null;
-    }
-    // Double tap toggle between Fit Width and 100%
-    if (e.changedTouches.length === 1) {
-      const now = Date.now();
-      if (now - lastTapRef.current < 300) {
-        if (Math.abs(zoom - 1) < 0.1) {
-          handleFitWidth();
-        } else {
-          setZoom(1);
+  // Two-finger pinch-to-zoom & two-finger pan refs
+  const pinchStartDistRef = useRef<number | null>(null);
+  const pinchStartZoomRef = useRef<number>(1);
+  const pinchCenterRef = useRef<{ clientX: number; clientY: number }>({ clientX: 0, clientY: 0 });
+  const pinchContentAnchorRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+
+  // Unified Gesture System: Native Pointer events for Pan Mode + Non-passive touch for pinch-zoom
+  useEffect(() => {
+    const container = pagesContainerRef.current;
+    if (!container) return;
+
+    // A. Two-finger pinch-to-zoom and two-finger pan
+    // Using { passive: false } enables e.preventDefault() to block browser-level page zoom!
+    const onTouchStart = (e: TouchEvent) => {
+      if (e.touches.length === 2) {
+        e.preventDefault();
+        const t0 = e.touches[0];
+        const t1 = e.touches[1];
+        const dist = Math.hypot(t0.clientX - t1.clientX, t0.clientY - t1.clientY);
+        const midX = (t0.clientX + t1.clientX) / 2;
+        const midY = (t0.clientY + t1.clientY) / 2;
+
+        pinchStartDistRef.current = dist;
+        pinchStartZoomRef.current = zoomRef.current;
+        pinchCenterRef.current = { clientX: midX, clientY: midY };
+
+        const rect = container.getBoundingClientRect();
+        const clientXInContainer = midX - rect.left;
+        const clientYInContainer = midY - rect.top;
+
+        pinchContentAnchorRef.current = {
+          x: clientXInContainer + container.scrollLeft,
+          y: clientYInContainer + container.scrollTop,
+        };
+        setIsActivelyDragging(true);
+      }
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      if (e.touches.length === 2 && pinchStartDistRef.current !== null && pinchStartDistRef.current > 0) {
+        e.preventDefault(); // Prevents browser whole-page zoom
+        const t0 = e.touches[0];
+        const t1 = e.touches[1];
+        const dist = Math.hypot(t0.clientX - t1.clientX, t0.clientY - t1.clientY);
+        const midX = (t0.clientX + t1.clientX) / 2;
+        const midY = (t0.clientY + t1.clientY) / 2;
+
+        const factor = dist / pinchStartDistRef.current;
+        const rawTargetZoom = pinchStartZoomRef.current * factor;
+        const targetZoom = Math.min(2.5, Math.max(0.35, Math.round(rawTargetZoom * 100) / 100));
+
+        // Two-finger pan delta
+        const panDeltaX = midX - pinchCenterRef.current.clientX;
+        const panDeltaY = midY - pinchCenterRef.current.clientY;
+
+        const rect = container.getBoundingClientRect();
+        const clientXInContainer = midX - rect.left;
+        const clientYInContainer = midY - rect.top;
+
+        const scaleRatio = targetZoom / pinchStartZoomRef.current;
+        const newScrollLeft = pinchContentAnchorRef.current.x * scaleRatio - clientXInContainer - panDeltaX;
+        const newScrollTop = pinchContentAnchorRef.current.y * scaleRatio - clientYInContainer - panDeltaY;
+
+        setZoom(targetZoom);
+        container.scrollLeft = newScrollLeft;
+        container.scrollTop = newScrollTop;
+
+        hasMovedRef.current = true;
+        suppressClickUntilRef.current = Date.now() + 250;
+      }
+    };
+
+    const onTouchEnd = (e: TouchEvent) => {
+      if (e.touches.length < 2) {
+        pinchStartDistRef.current = null;
+        if (!isPointerDownRef.current) {
+          setIsActivelyDragging(false);
         }
       }
-      lastTapRef.current = now;
-    }
-  };
+    };
+
+    // B. Pointer Events for 1-finger Pan Mode and mouse drag
+    const onPointerDown = (e: PointerEvent) => {
+      if (isPanModeRef.current || e.button === 1) {
+        if (e.button !== 0 && e.button !== 1) return;
+
+        // Prevent virtual keyboard from opening on touch in Pan Mode
+        e.preventDefault();
+
+        isPointerDownRef.current = true;
+        activePointerIdRef.current = e.pointerId;
+        pointerStartRef.current = { x: e.clientX, y: e.clientY };
+        scrollStartRef.current = {
+          left: container.scrollLeft,
+          top: container.scrollTop,
+        };
+        hasMovedRef.current = false;
+        setIsActivelyDragging(true);
+
+        try {
+          container.setPointerCapture(e.pointerId);
+        } catch (_) {}
+      }
+    };
+
+    const onPointerMove = (e: PointerEvent) => {
+      if (!isPointerDownRef.current || activePointerIdRef.current !== e.pointerId) return;
+
+      const dx = e.clientX - pointerStartRef.current.x;
+      const dy = e.clientY - pointerStartRef.current.y;
+
+      if (!hasMovedRef.current && Math.hypot(dx, dy) > 3) {
+        hasMovedRef.current = true;
+      }
+
+      if (hasMovedRef.current) {
+        if (panRafRef.current) cancelAnimationFrame(panRafRef.current);
+        panRafRef.current = requestAnimationFrame(() => {
+          container.scrollLeft = scrollStartRef.current.left - dx;
+          container.scrollTop = scrollStartRef.current.top - dy;
+        });
+      }
+    };
+
+    const onPointerUp = (e: PointerEvent) => {
+      if (activePointerIdRef.current === e.pointerId) {
+        isPointerDownRef.current = false;
+        activePointerIdRef.current = null;
+        setIsActivelyDragging(false);
+
+        try {
+          container.releasePointerCapture(e.pointerId);
+        } catch (_) {}
+
+        if (hasMovedRef.current) {
+          suppressClickUntilRef.current = Date.now() + 200;
+        }
+      }
+    };
+
+    const onPointerCancel = (e: PointerEvent) => {
+      if (activePointerIdRef.current === e.pointerId) {
+        isPointerDownRef.current = false;
+        activePointerIdRef.current = null;
+        setIsActivelyDragging(false);
+        try {
+          container.releasePointerCapture(e.pointerId);
+        } catch (_) {}
+      }
+    };
+
+    // C. Click suppression in capture phase: prevents accidental clicks on links or toolbar after dragging
+    const onClickCapture = (e: MouseEvent) => {
+      if (Date.now() < suppressClickUntilRef.current || isPanModeRef.current) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    };
+
+    // D. Smooth Ctrl+Wheel and trackpad pinch-zoom anchored to pointer
+    const onWheel = (e: WheelEvent) => {
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+        const zoomDelta = -e.deltaY * 0.0025;
+        const currentZoom = zoomRef.current;
+        const newZoom = Math.min(2.5, Math.max(0.35, Math.round((currentZoom + zoomDelta) * 100) / 100));
+        if (newZoom !== currentZoom) {
+          const rect = container.getBoundingClientRect();
+          const pointerX = e.clientX - rect.left;
+          const pointerY = e.clientY - rect.top;
+          const contentX = pointerX + container.scrollLeft;
+          const contentY = pointerY + container.scrollTop;
+          const scaleRatio = newZoom / currentZoom;
+          setZoom(newZoom);
+          container.scrollLeft = contentX * scaleRatio - pointerX;
+          container.scrollTop = contentY * scaleRatio - pointerY;
+        }
+      }
+    };
+
+    container.addEventListener('touchstart', onTouchStart, { passive: false });
+    container.addEventListener('touchmove', onTouchMove, { passive: false });
+    container.addEventListener('touchend', onTouchEnd);
+    container.addEventListener('touchcancel', onTouchEnd);
+
+    container.addEventListener('pointerdown', onPointerDown);
+    container.addEventListener('pointermove', onPointerMove);
+    container.addEventListener('pointerup', onPointerUp);
+    container.addEventListener('pointercancel', onPointerCancel);
+    container.addEventListener('lostpointercapture', onPointerCancel);
+
+    container.addEventListener('click', onClickCapture, { capture: true });
+    container.addEventListener('wheel', onWheel, { passive: false });
+
+    return () => {
+      container.removeEventListener('touchstart', onTouchStart);
+      container.removeEventListener('touchmove', onTouchMove);
+      container.removeEventListener('touchend', onTouchEnd);
+      container.removeEventListener('touchcancel', onTouchEnd);
+
+      container.removeEventListener('pointerdown', onPointerDown);
+      container.removeEventListener('pointermove', onPointerMove);
+      container.removeEventListener('pointerup', onPointerUp);
+      container.removeEventListener('pointercancel', onPointerCancel);
+      container.removeEventListener('lostpointercapture', onPointerCancel);
+
+      container.removeEventListener('click', onClickCapture, { capture: true });
+      container.removeEventListener('wheel', onWheel);
+
+      if (panRafRef.current) cancelAnimationFrame(panRafRef.current);
+    };
+  }, []);
 
   // Keyboard shortcut listener for Ctrl+S, Ctrl+P, Ctrl+F
   useEffect(() => {
@@ -378,6 +567,8 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
           onToggleRuler={() => setRulerVisible(!rulerVisible)}
           spellcheck={spellcheck}
           onToggleSpellcheck={() => setSpellcheck(!spellcheck)}
+          isPanMode={isPanMode}
+          onTogglePanMode={() => setIsPanMode(!isPanMode)}
         />
       )}
 
@@ -391,22 +582,47 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
       {/* 4. Canvas Viewport Area */}
       <main
         ref={pagesContainerRef}
-        onTouchStart={handleTouchStart}
-        onTouchMove={handleTouchMove}
-        onTouchEnd={handleTouchEnd}
-        className={`flex-1 overflow-auto p-2 sm:p-4 md:p-8 flex flex-col items-center relative ${canvasBg} transition-colors`}
+        className={`flex-1 overflow-auto p-2 sm:p-4 md:p-8 flex flex-col items-center relative ${canvasBg} transition-colors ${
+          isPanMode
+            ? isActivelyDragging
+              ? 'cursor-grabbing select-none'
+              : 'cursor-grab select-none'
+            : ''
+        }`}
+        style={{
+          touchAction: isPanMode ? 'none' : 'manipulation',
+          userSelect: isPanMode ? 'none' : 'auto',
+          WebkitUserSelect: isPanMode ? 'none' : 'auto',
+        }}
         onClick={(e) => {
-          if (e.target === e.currentTarget && editor) {
+          if (!isPanMode && e.target === e.currentTarget && editor) {
             editor.commands.focus('end');
           }
         }}
       >
+        {/* Floating Pan Mode active indicator pill */}
+        {isPanMode && (
+          <div className="sticky top-2 z-20 flex items-center gap-2 px-4 py-1.5 rounded-full bg-teal-700/95 text-white text-xs font-medium shadow-xl backdrop-blur-md border border-teal-500/50 select-none transition-all">
+            <Hand className="w-3.5 h-3.5 text-teal-200 shrink-0" />
+            <span>{t.panModeActive}</span>
+            <button
+              type="button"
+              onClick={() => setIsPanMode(false)}
+              className="ml-1.5 px-2.5 py-0.5 rounded-full bg-white/20 hover:bg-white/30 text-[11px] font-bold text-white transition-colors"
+            >
+              {t.exitPanMode}
+            </button>
+          </div>
+        )}
+
         {/* Floating Bubble Menu on text selection (desktop only per RC5) */}
-        <SelectionBubbleMenu
-          editor={editor}
-          onOpenLinkModal={() => setShowLinkModal(true)}
-          onOpenColorPicker={() => {}}
-        />
+        {!isPanMode && (
+          <SelectionBubbleMenu
+            editor={editor}
+            onOpenLinkModal={() => setShowLinkModal(true)}
+            onOpenColorPicker={() => {}}
+          />
+        )}
 
         {/* Paper Sheet Container */}
         {viewLayout === 'print' ? (
@@ -419,7 +635,7 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
               style={{
                 width: `${pageWidthPx * zoom}px`,
                 margin: '0 auto',
-                transition: 'width 75ms ease-out',
+                transition: isActivelyDragging ? 'none' : 'width 75ms ease-out',
               }}
             >
               {/* Inner scaled container */}
@@ -462,9 +678,11 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
                   {/* Tiptap Editor Content */}
                   <div
                     ref={contentWrapperRef}
-                    className="min-h-[500px] cursor-text select-text relative z-10"
+                    className={`min-h-[500px] relative z-10 ${
+                      isPanMode ? 'pointer-events-none select-none' : 'cursor-text select-text'
+                    }`}
                     onClick={() => {
-                      if (editor && !editor.isFocused) {
+                      if (!isPanMode && editor && !editor.isFocused) {
                         editor.commands.focus();
                       }
                     }}
@@ -477,14 +695,25 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
           </div>
         ) : (
           /* Reflow / Web Layout Mode for phone writing */
-          <div className="w-full max-w-3xl bg-white dark:bg-slate-900 rounded-2xl shadow-lg p-4 sm:p-8 md:p-10 border border-slate-200 dark:border-slate-800 transition-colors my-2 sm:my-4">
-            <EditorContent editor={editor} className="cursor-text select-text" />
+          <div
+            className={`w-full max-w-3xl bg-white dark:bg-slate-900 rounded-2xl shadow-lg p-4 sm:p-8 md:p-10 border border-slate-200 dark:border-slate-800 transition-colors my-2 sm:my-4 ${
+              isPanMode ? 'pointer-events-none select-none' : ''
+            }`}
+          >
+            <EditorContent
+              editor={editor}
+              className={isPanMode ? 'pointer-events-none select-none' : 'cursor-text select-text'}
+            />
           </div>
         )}
       </main>
 
       {/* 5. Mobile Floating Quick-Bar (Above keyboard, Android ergonomic) */}
-      <MobileFormatBar editor={editor} />
+      <MobileFormatBar
+        editor={editor}
+        isPanMode={isPanMode}
+        onTogglePanMode={() => setIsPanMode(!isPanMode)}
+      />
 
       {/* 6. Bottom Status Bar */}
       {!isFocusMode && (
@@ -510,8 +739,30 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
             </span>
           </div>
 
-          {/* Right: Zoom controls, Fit and 100% buttons always accessible */}
+          {/* Right: Pan mode toggle & Zoom controls */}
           <div className="flex items-center gap-1 sm:gap-1.5">
+            {/* Pan Mode Button */}
+            <button
+              type="button"
+              onClick={() => setIsPanMode(!isPanMode)}
+              className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-lg transition-all border ${
+                isPanMode
+                  ? 'bg-teal-600 border-teal-600 text-white shadow-xs'
+                  : 'bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+              }`}
+              title={isPanMode ? 'প্যান মোড বন্ধ করুন (স্বাভাবিক লেখায় ফিরুন)' : 'প্যান মোড চালু করুন (স্ক্রিন সরাতে ড্র্যাগ করুন)'}
+              aria-pressed={isPanMode}
+              aria-label="Pan Mode"
+            >
+              <Hand className={`w-3.5 h-3.5 ${isPanMode ? 'text-white' : 'text-teal-600 dark:text-teal-400'}`} />
+              <span className="hidden xs:inline">{t.panMode}</span>
+              {isPanMode && (
+                <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+              )}
+            </button>
+
+            <div className="w-px h-4 bg-slate-200 dark:bg-slate-700 mx-0.5" />
+
             <button
               type="button"
               onClick={() => setZoom((z) => Math.max(0.4, Math.round((z - 0.1) * 10) / 10))}

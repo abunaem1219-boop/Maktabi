@@ -3,18 +3,23 @@ import { Editor } from '@tiptap/react';
 import {
   Bold, Italic, Underline as UnderlineIcon, List, ListOrdered,
   Undo2, Redo2, Palette, Highlighter, AlignLeft, AlignCenter,
-  AlignRight, SplitSquareVertical, ArrowLeftRight, ChevronRight
+  AlignRight, SplitSquareVertical, ArrowLeftRight, ChevronRight,
+  Hand
 } from 'lucide-react';
 import { ColorPickerPopover } from '../../../components/ui/ColorPickerPopover';
 
 interface MobileFormatBarProps {
   editor: Editor | null;
   onOpenMoreRibbon?: () => void;
+  isPanMode?: boolean;
+  onTogglePanMode?: () => void;
 }
 
 export const MobileFormatBar: React.FC<MobileFormatBarProps> = ({
   editor,
   onOpenMoreRibbon,
+  isPanMode = false,
+  onTogglePanMode,
 }) => {
   const [bottomOffset, setBottomOffset] = useState<number>(0);
   const [isFocused, setIsFocused] = useState<boolean>(false);
@@ -103,6 +108,24 @@ export const MobileFormatBar: React.FC<MobileFormatBarProps> = ({
         >
           <Redo2 className="w-4 h-4" />
         </button>
+
+        {onTogglePanMode && (
+          <button
+            type="button"
+            onPointerDown={(e) => {
+              e.preventDefault();
+              onTogglePanMode();
+            }}
+            className={`min-w-[44px] min-h-[44px] px-2 flex items-center justify-center gap-1 rounded-xl transition-colors ${
+              isPanMode
+                ? 'bg-teal-600 text-white font-bold'
+                : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+            }`}
+            title="Pan Mode (প্যান মোড)"
+          >
+            <Hand className="w-4 h-4" />
+          </button>
+        )}
 
         <div className="w-px h-5 bg-slate-200 dark:bg-slate-700 mx-1 shrink-0" />
 

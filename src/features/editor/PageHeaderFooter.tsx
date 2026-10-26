@@ -24,10 +24,11 @@ export const PageHeaderFooter: React.FC<PageHeaderFooterProps> = ({
     <>
       {/* Header Slot */}
       <div
-        onClick={onEditHeaderFooter}
+        onDoubleClick={onEditHeaderFooter}
+        onClick={(e) => e.stopPropagation()}
         title={!isPrintOrExport ? 'ডাবল ক্লিক করে হেডার এডিট করুন' : undefined}
         className={`page-header-slot w-full flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 select-none pb-2 border-b border-slate-200/60 dark:border-slate-700/60 transition-colors ${
-          !isPrintOrExport ? 'cursor-pointer hover:border-teal-500/80 hover:text-teal-600 dark:hover:text-teal-400' : ''
+          !isPrintOrExport ? 'cursor-default hover:border-teal-500/80 hover:text-teal-600 dark:hover:text-teal-400' : ''
         }`}
       >
         <span className="truncate max-w-[65%] font-medium">
@@ -58,10 +59,11 @@ export const PageHeaderFooter: React.FC<PageHeaderFooterProps> = ({
 
       {/* Footer Slot */}
       <div
-        onClick={onEditHeaderFooter}
+        onDoubleClick={onEditHeaderFooter}
+        onClick={(e) => e.stopPropagation()}
         title={!isPrintOrExport ? 'ডাবল ক্লিক করে ফুটার এডিট করুন' : undefined}
         className={`page-footer-slot w-full flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 select-none pt-2 border-t border-slate-200/60 dark:border-slate-700/60 transition-colors ${
-          !isPrintOrExport ? 'cursor-pointer hover:border-teal-500/80 hover:text-teal-600 dark:hover:text-teal-400' : ''
+          !isPrintOrExport ? 'cursor-default hover:border-teal-500/80 hover:text-teal-600 dark:hover:text-teal-400' : ''
         }`}
       >
         <span className="truncate max-w-[60%] text-[11px]">
